@@ -8,6 +8,7 @@ import { ShareDBPool } from "./transport/sharedb.js";
 import { TripCache } from "./cache/trip-cache.js";
 import type { AppContext } from "./context.js";
 import { WanderlogError, loginFailureStatus } from "./errors.js";
+import { resolveRequestCookie } from "./http-auth.js";
 import { buildServer } from "./server.js";
 
 // --- per-user context cache keyed by cookie hash ---
@@ -108,15 +109,12 @@ async function main() {
   // the transport itself decides what's allowed per the spec.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleMcp = async (req: any, res: any) => {
-    const cookie = extractCookie(req);
-    if (!cookie) {
-      res.status(401).json({
+    const resolved = resolveRequestCookie(extractCookie(req));
+    if (!resolved.ok) {
+      if (resolved.status === 500) console.error(`[wanderdog] ${resolved.message}`);
+      res.status(resolved.status).json({
         jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message:
-            "Missing Authorization header. Set Bearer token to your Wanderlog connect.sid cookie value.",
-        },
+        error: { code: -32000, message: resolved.message },
         id: null,
       });
       return;
@@ -124,7 +122,7 @@ async function main() {
 
     let ctx: AppContext;
     try {
-      ctx = await getOrCreateContext(cookie);
+      ctx = await getOrCreateContext(resolved.cookie);
     } catch (err) {
       const msg = err instanceof WanderlogError ? err.toUserMessage() : (err as Error).message;
       const status = loginFailureStatus(err);

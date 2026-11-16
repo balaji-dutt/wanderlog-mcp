@@ -289,6 +289,33 @@ Run `/mcp` inside Codex to confirm the server loaded.
 npx @smithery/cli install wanderlog-mcp --client claude
 ```
 
+#### Remote MCP clients (self-hosted on Fly.io)
+
+Clients that can't launch a local stdio server, such as claude.ai custom connectors, need a
+remote one, so this fork deploys `dist/http.js` to Fly.io from GitHub Actions
+(`.github/workflows/fly-deploy.yml`). The Wanderlog cookie stays in a Fly secret; the client
+only holds a separate access key, and requests without it get a 401.
+
+1. Set the app name in `fly.toml` (it must be unique across Fly.io).
+2. In the Fly dashboard, create an org deploy token (organization → Tokens).
+3. Enable Actions on your fork, then add these repository secrets:
+
+   | Secret             | Value                                        |
+   | ------------------ | -------------------------------------------- |
+   | `FLY_API_TOKEN`    | The Fly token, including the `FlyV1 ` prefix |
+   | `WANDERLOG_COOKIE` | Your `connect.sid` value from Step 1         |
+   | `MCP_ACCESS_KEY`   | Output of `openssl rand -hex 32`             |
+
+4. Push to `main` or run the workflow manually. It creates the app if needed, stages both
+   runtime secrets, and deploys a single machine that stops when idle.
+5. Point your client at `https://<app>.fly.dev/mcp` (Streamable HTTP) and have it send
+   `Authorization: Bearer <MCP_ACCESS_KEY>` on every request. In claude.ai, that means a custom
+   connector with authentication **No sign-in** and request header `authorization` =
+   `Bearer <MCP_ACCESS_KEY>`.
+
+To rotate the cookie or key, update the GitHub secret, re-run the workflow, and give clients the
+new key. claude.ai can't edit saved headers, so there a new key means re-adding the connector.
+
 ### Step 3 — Verify
 
 Ask your agent: _"What trips do I have in Wanderlog?"_
@@ -317,7 +344,7 @@ The server injects instructions into the MCP `initialize` response that tell the
 ## Security
 
 - The cookie is stored only in your MCP client config, never committed or logged
-- wanderlog-mcp runs entirely on your machine — there's no relay server
+- With the stdio setup, wanderlog-mcp runs entirely on your machine — there's no relay server. The Fly.io setup is the exception: the cookie lives in a Fly secret and the server holds it on your behalf
 - The startup auth probe validates your cookie without printing its value
 - To revoke access: log out of wanderlog.com (invalidates all sessions), then re-capture
 
